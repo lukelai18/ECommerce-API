@@ -1,0 +1,15 @@
+# 项目依赖
+
+# Web框架
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# 数据处理和验证
+pydantic>=2.0.0
+
+# 测试框架
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# 开发工具
+python-dotenv>=1.0.0
