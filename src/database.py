@@ -223,9 +223,19 @@ class InMemoryDatabase:
         # 存储结构：{id: record_dict}
         self.users: Dict[int, Dict[str, Any]] = {}
         self.products: Dict[int, Dict[str, Any]] = {}
+        self.orders: Dict[int, Dict[str, Any]] = {}
+        self.categories: Dict[int, Dict[str, Any]] = {}
+        self.reviews: Dict[int, Dict[str, Any]] = {}
+        self.inventories: Dict[int, Dict[str, Any]] = {}
+        self.suppliers: Dict[int, Dict[str, Any]] = {}
         # 自增ID计数器
         self._user_id_seq = 0
         self._product_id_seq = 0
+        self._order_id_seq = 0
+        self._category_id_seq = 0
+        self._review_id_seq = 0
+        self._inventory_id_seq = 0
+        self._supplier_id_seq = 0
     
     # -------- User 操作 --------
     def create_user(self, user_data: Dict[str, Any]) -> int:
@@ -308,8 +318,188 @@ class InMemoryDatabase:
         """重置内存数据库"""
         self.users.clear()
         self.products.clear()
+        self.orders.clear()
+        self.categories.clear()
+        self.reviews.clear()
+        self.inventories.clear()
+        self.suppliers.clear()
         self._user_id_seq = 0
         self._product_id_seq = 0
+        self._order_id_seq = 0
+        self._category_id_seq = 0
+        self._review_id_seq = 0
+        self._inventory_id_seq = 0
+        self._supplier_id_seq = 0
+
+    # -------- Order 操作 --------
+    def create_order(self, order_data: Dict[str, Any]) -> int:
+        """创建订单，返回order_id"""
+        self._order_id_seq += 1
+        order_id = self._order_id_seq
+        record = {
+            "order_id": order_id,
+            "user_id": order_data.get("user_id"),
+            "product_ids": order_data.get("product_ids", []),
+            "total_amount": order_data.get("total_amount", 0.0),
+            "status": order_data.get("status", "pending"),
+            "created_at": order_data.get("created_at", datetime.now().isoformat())
+        }
+        self.orders[order_id] = record
+        return order_id
+
+    def get_order(self, order_id: int) -> Optional[Dict[str, Any]]:
+        return self.orders.get(order_id)
+
+    def list_orders(self) -> List[Dict[str, Any]]:
+        return list(self.orders.values())
+
+    def update_order(self, order_id: int, updates: Dict[str, Any]) -> bool:
+        if order_id not in self.orders:
+            return False
+        record = self.orders[order_id].copy()
+        record.update({k: v for k, v in updates.items() if k != "order_id"})
+        record["updated_at"] = datetime.now().isoformat()
+        self.orders[order_id] = record
+        return True
+
+    def delete_order(self, order_id: int) -> bool:
+        return self.orders.pop(order_id, None) is not None
+
+    # -------- Category 操作 --------
+    def create_category(self, data: Dict[str, Any]) -> int:
+        self._category_id_seq += 1
+        category_id = self._category_id_seq
+        record = {
+            "category_id": category_id,
+            "name": data.get("name"),
+            "description": data.get("description"),
+            "parent_category_id": data.get("parent_category_id"),
+            "is_active": data.get("is_active", True),
+            "created_at": data.get("created_at", datetime.now().isoformat())
+        }
+        self.categories[category_id] = record
+        return category_id
+
+    def get_category(self, category_id: int) -> Optional[Dict[str, Any]]:
+        return self.categories.get(category_id)
+
+    def list_categories(self) -> List[Dict[str, Any]]:
+        return list(self.categories.values())
+
+    def update_category(self, category_id: int, updates: Dict[str, Any]) -> bool:
+        if category_id not in self.categories:
+            return False
+        record = self.categories[category_id].copy()
+        record.update({k: v for k, v in updates.items() if k != "category_id"})
+        record["updated_at"] = datetime.now().isoformat()
+        self.categories[category_id] = record
+        return True
+
+    def delete_category(self, category_id: int) -> bool:
+        return self.categories.pop(category_id, None) is not None
+
+    # -------- Review 操作 --------
+    def create_review(self, data: Dict[str, Any]) -> int:
+        self._review_id_seq += 1
+        review_id = self._review_id_seq
+        record = {
+            "review_id": review_id,
+            "product_id": data.get("product_id"),
+            "user_id": data.get("user_id"),
+            "rating": data.get("rating"),
+            "comment": data.get("comment"),
+            "created_at": data.get("created_at", datetime.now().isoformat())
+        }
+        self.reviews[review_id] = record
+        return review_id
+
+    def get_review(self, review_id: int) -> Optional[Dict[str, Any]]:
+        return self.reviews.get(review_id)
+
+    def list_reviews(self) -> List[Dict[str, Any]]:
+        return list(self.reviews.values())
+
+    def update_review(self, review_id: int, updates: Dict[str, Any]) -> bool:
+        if review_id not in self.reviews:
+            return False
+        record = self.reviews[review_id].copy()
+        record.update({k: v for k, v in updates.items() if k != "review_id"})
+        record["updated_at"] = datetime.now().isoformat()
+        self.reviews[review_id] = record
+        return True
+
+    def delete_review(self, review_id: int) -> bool:
+        return self.reviews.pop(review_id, None) is not None
+
+    # -------- Inventory 操作 --------
+    def create_inventory(self, data: Dict[str, Any]) -> int:
+        self._inventory_id_seq += 1
+        inventory_id = self._inventory_id_seq
+        record = {
+            "inventory_id": inventory_id,
+            "product_id": data.get("product_id"),
+            "quantity": data.get("quantity", 0),
+            "min_stock": data.get("min_stock", 0),
+            "max_stock": data.get("max_stock", 0),
+            "location": data.get("location", "主仓库"),
+            "last_updated": data.get("last_updated", datetime.now().isoformat())
+        }
+        self.inventories[inventory_id] = record
+        return inventory_id
+
+    def get_inventory(self, inventory_id: int) -> Optional[Dict[str, Any]]:
+        return self.inventories.get(inventory_id)
+
+    def list_inventories(self) -> List[Dict[str, Any]]:
+        return list(self.inventories.values())
+
+    def update_inventory(self, inventory_id: int, updates: Dict[str, Any]) -> bool:
+        if inventory_id not in self.inventories:
+            return False
+        record = self.inventories[inventory_id].copy()
+        record.update({k: v for k, v in updates.items() if k != "inventory_id"})
+        record["last_updated"] = datetime.now().isoformat()
+        self.inventories[inventory_id] = record
+        return True
+
+    def delete_inventory(self, inventory_id: int) -> bool:
+        return self.inventories.pop(inventory_id, None) is not None
+
+    # -------- Supplier 操作 --------
+    def create_supplier(self, data: Dict[str, Any]) -> int:
+        self._supplier_id_seq += 1
+        supplier_id = self._supplier_id_seq
+        record = {
+            "supplier_id": supplier_id,
+            "company_name": data.get("company_name"),
+            "contact_person": data.get("contact_person"),
+            "email": data.get("email"),
+            "phone": data.get("phone"),
+            "address": data.get("address"),
+            "country": data.get("country", "中国"),
+            "is_active": data.get("is_active", True),
+            "created_at": data.get("created_at", datetime.now().isoformat())
+        }
+        self.suppliers[supplier_id] = record
+        return supplier_id
+
+    def get_supplier(self, supplier_id: int) -> Optional[Dict[str, Any]]:
+        return self.suppliers.get(supplier_id)
+
+    def list_suppliers(self) -> List[Dict[str, Any]]:
+        return list(self.suppliers.values())
+
+    def update_supplier(self, supplier_id: int, updates: Dict[str, Any]) -> bool:
+        if supplier_id not in self.suppliers:
+            return False
+        record = self.suppliers[supplier_id].copy()
+        record.update({k: v for k, v in updates.items() if k != "supplier_id"})
+        record["updated_at"] = datetime.now().isoformat()
+        self.suppliers[supplier_id] = record
+        return True
+
+    def delete_supplier(self, supplier_id: int) -> bool:
+        return self.suppliers.pop(supplier_id, None) is not None
 
 
 # 数据库连接管理器
