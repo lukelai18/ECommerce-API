@@ -3,7 +3,7 @@
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uvicorn
 
@@ -136,6 +136,14 @@ async def create_user(user: UserCreate):
         "created_at": created_at
     })
     record = in_memory_db.get_user(user_id)
+    # 同步到 data_store 供订单使用
+    data_store.add_user(User(
+        id=user_id,
+        username=record["username"],
+        email=record["email"],
+        created_at=datetime.fromisoformat(record["created_at"]),
+        is_active=record["is_active"]
+    ))
     return UserResponse(
         id=record["user_id"],
         username=record["username"],
@@ -203,6 +211,16 @@ async def update_user(user_id: int, payload: UserUpdate):
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
     
+    # 同步到 data_store
+    ds_user = data_store.get_user_by_id(user_id)
+    if ds_user:
+        if "username" in updates:
+            ds_user.username = updates["username"]
+        if "email" in updates:
+            ds_user.email = updates["email"]
+        if "is_active" in updates:
+            ds_user.is_active = updates["is_active"]
+    
     updated = in_memory_db.get_user(user_id)
     return UserResponse(
         id=updated["user_id"],
@@ -220,6 +238,8 @@ async def delete_user(user_id: int):
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户未找到")
     in_memory_db.delete_user(user_id)
+    # 同步从 data_store 移除
+    data_store.users = [u for u in data_store.users if u.id != user_id]
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
 

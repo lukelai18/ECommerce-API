@@ -11,6 +11,8 @@
 - ✅ **JSON 数据库示例**：`Database` 类保留 JSON 持久化演示
 - ✅ **自动文档**：Swagger UI / ReDoc
 
+**架构说明**：用户与产品的主存储为 `InMemoryDatabase`（内存字典），创建/更新/删除时会同步到 `DataStore`（内存对象列表），供订单创建与查询使用；订单数据同时写入 JSON 数据库 `Database` 做持久化演示。
+
 ## 目录结构
 
 ```
@@ -52,6 +54,10 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 主要 API（摘要）
 
+### 通用
+- `GET /` 根路由（欢迎信息与版本）
+- `GET /health` 健康检查
+
 ### 用户 User（基于内存数据库）
 - `POST /users` 创建用户
 - `GET /users` 获取用户列表
@@ -68,8 +74,11 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 - `DELETE /products/{product_id}` 删除产品
 
 ### 订单示例
-- `POST /orders` 创建订单（依赖当前内存用户与产品）
+- `POST /orders` 创建订单（依赖当前内存用户与产品，用户/产品在创建时会同步到订单用 DataStore）
 - `GET /orders` 获取订单列表
+
+### 数据库信息
+- `GET /database/info` 获取 JSON 数据库信息（表名、表结构、数据文件路径）
 
 ## 数据模型亮点
 
@@ -83,7 +92,7 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 python -m pytest tests/
 ```
 
-> 当前仅含基础示例测试，可按需补充。
+> 当前仅含基础示例测试；主应用通过 `uvicorn src.main:app` 启动，可按需使用 `fastapi.testclient.TestClient` 补充接口测试。
 
 ## 下一步可拓展方向
 
