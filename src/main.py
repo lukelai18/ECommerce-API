@@ -96,6 +96,125 @@ class OrderResponse(BaseModel):
     created_at: str
 
 
+class OrderUpdate(BaseModel):
+    """订单更新模型"""
+    status: Optional[str] = None
+    product_ids: Optional[List[int]] = None
+
+
+class CategoryCreate(BaseModel):
+    """分类创建模型"""
+    name: str
+    description: Optional[str] = None
+    parent_category_id: Optional[int] = None
+    is_active: bool = True
+
+
+class CategoryUpdate(BaseModel):
+    """分类更新模型"""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    parent_category_id: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+class CategoryResponse(BaseModel):
+    """分类响应模型"""
+    category_id: int
+    name: str
+    description: Optional[str] = None
+    parent_category_id: Optional[int] = None
+    is_active: bool
+    created_at: str
+
+
+class ReviewCreate(BaseModel):
+    """评价创建模型"""
+    product_id: int
+    user_id: int
+    rating: int
+    comment: Optional[str] = None
+
+
+class ReviewUpdate(BaseModel):
+    """评价更新模型"""
+    rating: Optional[int] = None
+    comment: Optional[str] = None
+
+
+class ReviewResponse(BaseModel):
+    """评价响应模型"""
+    review_id: int
+    product_id: int
+    user_id: int
+    rating: int
+    comment: Optional[str] = None
+    created_at: str
+
+
+class InventoryCreate(BaseModel):
+    """库存创建模型"""
+    product_id: int
+    quantity: int
+    min_stock: int = 0
+    max_stock: int = 0
+    location: str = "主仓库"
+
+
+class InventoryUpdate(BaseModel):
+    """库存更新模型"""
+    quantity: Optional[int] = None
+    min_stock: Optional[int] = None
+    max_stock: Optional[int] = None
+    location: Optional[str] = None
+
+
+class InventoryResponse(BaseModel):
+    """库存响应模型"""
+    inventory_id: int
+    product_id: int
+    quantity: int
+    min_stock: int
+    max_stock: int
+    location: str
+    last_updated: str
+
+
+class SupplierCreate(BaseModel):
+    """供应商创建模型"""
+    company_name: str
+    contact_person: str
+    email: EmailStr
+    phone: str
+    address: str
+    country: str = "中国"
+    is_active: bool = True
+
+
+class SupplierUpdate(BaseModel):
+    """供应商更新模型"""
+    company_name: Optional[str] = None
+    contact_person: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    country: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SupplierResponse(BaseModel):
+    """供应商响应模型"""
+    supplier_id: int
+    company_name: str
+    contact_person: str
+    email: EmailStr
+    phone: str
+    address: str
+    country: str
+    is_active: bool
+    created_at: str
+
+
 # 根路由
 @app.get("/")
 async def root():
@@ -407,94 +526,364 @@ async def delete_product(product_id: int):
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
 
-# 订单相关API
+# 订单相关API（使用 InMemoryDatabase）
+def _build_order_response(order_record: Dict[str, Any]) -> OrderResponse:
+    """将订单记录转换为响应"""
+    products_resp: List[ProductResponse] = []
+    for pid in order_record.get("product_ids", []):
+        prod = in_memory_db.get_product(pid)
+        if not prod:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"产品 {pid} 未找到")
+        products_resp.append(ProductResponse(
+            id=prod["product_id"],
+            name=prod["name"],
+            price=prod["price"],
+            description=prod.get("description"),
+            stock=prod["stock"],
+            is_available=prod["is_available"]
+        ))
+    return OrderResponse(
+        id=order_record["order_id"],
+        user_id=order_record["user_id"],
+        products=products_resp,
+        total_amount=order_record.get("total_amount", 0.0),
+        status=order_record.get("status", "pending"),
+        created_at=order_record.get("created_at", datetime.now().isoformat())
+    )
+
+
 @app.post("/orders", response_model=OrderResponse, status_code=status.HTTP_201_CREATED)
 async def create_order(order: OrderCreate):
     """创建新订单"""
-    # 检查用户是否存在
-    user = data_store.get_user_by_id(order.user_id)
+    # 校验用户存在
+    user = in_memory_db.get_user(order.user_id)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户未找到"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户未找到")
     
-    # 获取产品
-    products = []
+    # 校验产品并计算金额
     total_amount = 0.0
+    for pid in order.product_ids:
+        prod = in_memory_db.get_product(pid)
+        if not prod:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"产品 {pid} 未找到")
+        if not prod.get("is_available", False):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"产品 {prod['name']} 库存不足")
+        total_amount += prod["price"]
     
-    for product_id in order.product_ids:
-        product = data_store.get_product_by_id(product_id)
-        if not product:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"产品 {product_id} 未找到"
-            )
-        if not product.is_available:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"产品 {product.name} 库存不足"
-            )
-        products.append(product)
-        total_amount += product.price
-    
-    # 创建订单
-    new_order = Order(
-        id=len(data_store.orders) + 1,
-        user_id=order.user_id,
-        products=products,
-        total_amount=total_amount
-    )
-    data_store.add_order(new_order)
-    
-    # 保存到数据库
-    order_data = {
-        "user_id": new_order.user_id,
-        "product_ids": [p.id for p in new_order.products],
-        "total_amount": new_order.total_amount,
-        "status": new_order.status,
-        "created_at": new_order.created_at.isoformat()
-    }
-    app_db.insert("orders", order_data)
-    
-    return OrderResponse(
-        id=new_order.id,
-        user_id=new_order.user_id,
-        products=[ProductResponse(
-            id=p.id,
-            name=p.name,
-            price=p.price,
-            description=p.description,
-            stock=p.stock,
-            is_available=p.is_available
-        ) for p in new_order.products],
-        total_amount=new_order.total_amount,
-        status=new_order.status,
-        created_at=new_order.created_at.isoformat()
-    )
+    order_id = in_memory_db.create_order({
+        "user_id": order.user_id,
+        "product_ids": order.product_ids,
+        "total_amount": total_amount,
+        "status": "pending",
+        "created_at": datetime.now().isoformat()
+    })
+    record = in_memory_db.get_order(order_id)
+    return _build_order_response(record)
 
 
 @app.get("/orders", response_model=List[OrderResponse])
 async def get_orders():
     """获取所有订单"""
-    orders = []
-    for order in data_store.orders:
-        orders.append(OrderResponse(
-            id=order.id,
-            user_id=order.user_id,
-            products=[ProductResponse(
-                id=p.id,
-                name=p.name,
-                price=p.price,
-                description=p.description,
-                stock=p.stock,
-                is_available=p.is_available
-            ) for p in order.products],
-            total_amount=order.total_amount,
-            status=order.status,
-            created_at=order.created_at.isoformat()
-        ))
-    return orders
+    return [_build_order_response(o) for o in in_memory_db.list_orders()]
+
+
+@app.get("/orders/{order_id}", response_model=OrderResponse)
+async def get_order(order_id: int):
+    """获取指定订单"""
+    record = in_memory_db.get_order(order_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单未找到")
+    return _build_order_response(record)
+
+
+@app.put("/orders/{order_id}", response_model=OrderResponse)
+async def update_order(order_id: int, payload: OrderUpdate):
+    """更新指定订单"""
+    record = in_memory_db.get_order(order_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单未找到")
+    
+    updates: Dict[str, Any] = {}
+    if payload.status is not None:
+        updates["status"] = payload.status
+    
+    if payload.product_ids is not None:
+        total_amount = 0.0
+        for pid in payload.product_ids:
+            prod = in_memory_db.get_product(pid)
+            if not prod:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"产品 {pid} 未找到")
+            if not prod.get("is_available", False):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"产品 {prod['name']} 库存不足")
+            total_amount += prod["price"]
+        updates["product_ids"] = payload.product_ids
+        updates["total_amount"] = total_amount
+    
+    ok = in_memory_db.update_order(order_id, updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+    
+    updated = in_memory_db.get_order(order_id)
+    return _build_order_response(updated)
+
+
+@app.delete("/orders/{order_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_order(order_id: int):
+    """删除指定订单"""
+    record = in_memory_db.get_order(order_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="订单未找到")
+    in_memory_db.delete_order(order_id)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# 分类相关API
+@app.post("/categories", response_model=CategoryResponse, status_code=status.HTTP_201_CREATED)
+async def create_category(payload: CategoryCreate):
+    """创建分类"""
+    category_id = in_memory_db.create_category({
+        "name": payload.name,
+        "description": payload.description,
+        "parent_category_id": payload.parent_category_id,
+        "is_active": payload.is_active,
+        "created_at": datetime.now().isoformat()
+    })
+    record = in_memory_db.get_category(category_id)
+    return CategoryResponse(**record)
+
+
+@app.get("/categories", response_model=List[CategoryResponse])
+async def list_categories():
+    """获取分类列表"""
+    return [CategoryResponse(**c) for c in in_memory_db.list_categories()]
+
+
+@app.get("/categories/{category_id}", response_model=CategoryResponse)
+async def get_category(category_id: int):
+    """获取分类详情"""
+    record = in_memory_db.get_category(category_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分类未找到")
+    return CategoryResponse(**record)
+
+
+@app.put("/categories/{category_id}", response_model=CategoryResponse)
+async def update_category(category_id: int, payload: CategoryUpdate):
+    """更新分类"""
+    record = in_memory_db.get_category(category_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分类未找到")
+    
+    updates: Dict[str, Any] = {}
+    for field in ["name", "description", "parent_category_id", "is_active"]:
+        val = getattr(payload, field)
+        if val is not None:
+            updates[field] = val
+    
+    ok = in_memory_db.update_category(category_id, updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+    updated = in_memory_db.get_category(category_id)
+    return CategoryResponse(**updated)
+
+
+@app.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_category(category_id: int):
+    """删除分类"""
+    record = in_memory_db.get_category(category_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="分类未找到")
+    in_memory_db.delete_category(category_id)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# 评价相关API
+@app.post("/reviews", response_model=ReviewResponse, status_code=status.HTTP_201_CREATED)
+async def create_review(payload: ReviewCreate):
+    """创建评价"""
+    # 校验关联
+    if not in_memory_db.get_product(payload.product_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="产品未找到")
+    if not in_memory_db.get_user(payload.user_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户未找到")
+    review_id = in_memory_db.create_review({
+        "product_id": payload.product_id,
+        "user_id": payload.user_id,
+        "rating": payload.rating,
+        "comment": payload.comment,
+        "created_at": datetime.now().isoformat()
+    })
+    record = in_memory_db.get_review(review_id)
+    return ReviewResponse(**record)
+
+
+@app.get("/reviews", response_model=List[ReviewResponse])
+async def list_reviews():
+    """获取评价列表"""
+    return [ReviewResponse(**r) for r in in_memory_db.list_reviews()]
+
+
+@app.get("/reviews/{review_id}", response_model=ReviewResponse)
+async def get_review(review_id: int):
+    """获取评价详情"""
+    record = in_memory_db.get_review(review_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评价未找到")
+    return ReviewResponse(**record)
+
+
+@app.put("/reviews/{review_id}", response_model=ReviewResponse)
+async def update_review(review_id: int, payload: ReviewUpdate):
+    """更新评价"""
+    record = in_memory_db.get_review(review_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评价未找到")
+    
+    updates: Dict[str, Any] = {}
+    if payload.rating is not None:
+        updates["rating"] = payload.rating
+    if payload.comment is not None:
+        updates["comment"] = payload.comment
+    
+    ok = in_memory_db.update_review(review_id, updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+    updated = in_memory_db.get_review(review_id)
+    return ReviewResponse(**updated)
+
+
+@app.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_review(review_id: int):
+    """删除评价"""
+    record = in_memory_db.get_review(review_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="评价未找到")
+    in_memory_db.delete_review(review_id)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# 库存相关API
+@app.post("/inventories", response_model=InventoryResponse, status_code=status.HTTP_201_CREATED)
+async def create_inventory(payload: InventoryCreate):
+    """创建库存"""
+    if not in_memory_db.get_product(payload.product_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="产品未找到")
+    inventory_id = in_memory_db.create_inventory({
+        "product_id": payload.product_id,
+        "quantity": payload.quantity,
+        "min_stock": payload.min_stock,
+        "max_stock": payload.max_stock,
+        "location": payload.location,
+        "last_updated": datetime.now().isoformat()
+    })
+    record = in_memory_db.get_inventory(inventory_id)
+    return InventoryResponse(**record)
+
+
+@app.get("/inventories", response_model=List[InventoryResponse])
+async def list_inventories():
+    """获取库存列表"""
+    return [InventoryResponse(**inv) for inv in in_memory_db.list_inventories()]
+
+
+@app.get("/inventories/{inventory_id}", response_model=InventoryResponse)
+async def get_inventory(inventory_id: int):
+    """获取库存详情"""
+    record = in_memory_db.get_inventory(inventory_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="库存未找到")
+    return InventoryResponse(**record)
+
+
+@app.put("/inventories/{inventory_id}", response_model=InventoryResponse)
+async def update_inventory(inventory_id: int, payload: InventoryUpdate):
+    """更新库存"""
+    record = in_memory_db.get_inventory(inventory_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="库存未找到")
+    
+    updates: Dict[str, Any] = {}
+    for field in ["quantity", "min_stock", "max_stock", "location"]:
+        val = getattr(payload, field)
+        if val is not None:
+            updates[field] = val
+    ok = in_memory_db.update_inventory(inventory_id, updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+    updated = in_memory_db.get_inventory(inventory_id)
+    return InventoryResponse(**updated)
+
+
+@app.delete("/inventories/{inventory_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_inventory(inventory_id: int):
+    """删除库存"""
+    record = in_memory_db.get_inventory(inventory_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="库存未找到")
+    in_memory_db.delete_inventory(inventory_id)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
+
+
+# 供应商相关API
+@app.post("/suppliers", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
+async def create_supplier(payload: SupplierCreate):
+    """创建供应商"""
+    supplier_id = in_memory_db.create_supplier({
+        "company_name": payload.company_name,
+        "contact_person": payload.contact_person,
+        "email": payload.email,
+        "phone": payload.phone,
+        "address": payload.address,
+        "country": payload.country,
+        "is_active": payload.is_active,
+        "created_at": datetime.now().isoformat()
+    })
+    record = in_memory_db.get_supplier(supplier_id)
+    return SupplierResponse(**record)
+
+
+@app.get("/suppliers", response_model=List[SupplierResponse])
+async def list_suppliers():
+    """获取供应商列表"""
+    return [SupplierResponse(**s) for s in in_memory_db.list_suppliers()]
+
+
+@app.get("/suppliers/{supplier_id}", response_model=SupplierResponse)
+async def get_supplier(supplier_id: int):
+    """获取供应商详情"""
+    record = in_memory_db.get_supplier(supplier_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="供应商未找到")
+    return SupplierResponse(**record)
+
+
+@app.put("/suppliers/{supplier_id}", response_model=SupplierResponse)
+async def update_supplier(supplier_id: int, payload: SupplierUpdate):
+    """更新供应商"""
+    record = in_memory_db.get_supplier(supplier_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="供应商未找到")
+    
+    updates: Dict[str, Any] = {}
+    for field in ["company_name", "contact_person", "email", "phone", "address", "country", "is_active"]:
+        val = getattr(payload, field)
+        if val is not None:
+            updates[field] = val
+    ok = in_memory_db.update_supplier(supplier_id, updates)
+    if not ok:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
+    updated = in_memory_db.get_supplier(supplier_id)
+    return SupplierResponse(**updated)
+
+
+@app.delete("/suppliers/{supplier_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_supplier(supplier_id: int):
+    """删除供应商"""
+    record = in_memory_db.get_supplier(supplier_id)
+    if not record:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="供应商未找到")
+    in_memory_db.delete_supplier(supplier_id)
+    return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
 
 # 数据库信息API
