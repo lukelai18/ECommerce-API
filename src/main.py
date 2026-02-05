@@ -8,8 +8,8 @@ from datetime import datetime
 import uvicorn
 
 # 导入项目模块
-from models import User, Product, Order, DataStore
-from database import Database, DatabaseManager, InMemoryDatabase
+from .models import UserPydantic as User, ProductPydantic as Product, OrderPydantic as Order, CategoryPydantic as Category, ReviewPydantic as Review, InventoryPydantic as Inventory, SupplierPydantic as Supplier
+from .database import InMemoryDatabase
 
 
 # 创建FastAPI应用实例
@@ -21,10 +21,7 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# 全局数据存储
-data_store = DataStore()
-db_manager = DatabaseManager()
-app_db = db_manager.get_database("app_db")
+# 初始化内存数据库
 in_memory_db = InMemoryDatabase()
 
 
@@ -255,14 +252,6 @@ async def create_user(user: UserCreate):
         "created_at": created_at
     })
     record = in_memory_db.get_user(user_id)
-    # 同步到 data_store 供订单使用
-    data_store.add_user(User(
-        id=user_id,
-        username=record["username"],
-        email=record["email"],
-        created_at=datetime.fromisoformat(record["created_at"]),
-        is_active=record["is_active"]
-    ))
     return UserResponse(
         id=record["user_id"],
         username=record["username"],
@@ -330,15 +319,7 @@ async def update_user(user_id: int, payload: UserUpdate):
     if not ok:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="更新失败")
     
-    # 同步到 data_store
-    ds_user = data_store.get_user_by_id(user_id)
-    if ds_user:
-        if "username" in updates:
-            ds_user.username = updates["username"]
-        if "email" in updates:
-            ds_user.email = updates["email"]
-        if "is_active" in updates:
-            ds_user.is_active = updates["is_active"]
+    # 更新完成
     
     updated = in_memory_db.get_user(user_id)
     return UserResponse(
@@ -357,8 +338,6 @@ async def delete_user(user_id: int):
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户未找到")
     in_memory_db.delete_user(user_id)
-    # 同步从 data_store 移除
-    data_store.users = [u for u in data_store.users if u.id != user_id]
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
 
@@ -382,16 +361,6 @@ async def create_product(product: ProductCreate):
         "created_at": created_at
     })
     record = in_memory_db.get_product(product_id)
-    
-    # 同步到 data_store 供订单使用
-    new_product = Product(
-        id=product_id,
-        name=record["name"],
-        price=record["price"],
-        description=record.get("description") or "",
-        stock=record["stock"]
-    )
-    data_store.add_product(new_product)
     
     return ProductResponse(
         id=record["product_id"],
@@ -487,17 +456,7 @@ async def update_product(product_id: int, payload: ProductUpdate):
     
     updated = in_memory_db.get_product(product_id)
     
-    # 同步到 data_store
-    ds_product = data_store.get_product_by_id(product_id)
-    if ds_product:
-        if "name" in updates:
-            ds_product.name = updates["name"]
-        if "price" in updates:
-            ds_product.price = updates["price"]
-        if "description" in updates:
-            ds_product.description = updates["description"] or ""
-        if "stock" in updates:
-            ds_product.stock = updates["stock"]
+    # 更新完成
     
     return ProductResponse(
         id=updated["product_id"],
@@ -518,10 +477,7 @@ async def delete_product(product_id: int):
     
     in_memory_db.delete_product(product_id)
     
-    # 同步删除 data_store
-    ds_product = data_store.get_product_by_id(product_id)
-    if ds_product:
-        data_store.products = [p for p in data_store.products if p.id != product_id]
+    # 删除完成
     
     return JSONResponse(status_code=status.HTTP_204_NO_CONTENT, content=None)
 
@@ -890,14 +846,46 @@ async def delete_supplier(supplier_id: int):
 @app.get("/database/info")
 async def get_database_info():
     """获取数据库信息"""
-    tables_info = {}
-    for table_name in app_db.get_all_tables():
-        tables_info[table_name] = app_db.get_table_info(table_name)
+    # 获取所有表的信息
+    tables_info = {
+        "users": {
+            "count": len(in_memory_db.users),
+            "fields": ["user_id", "username", "email", "is_active", "created_at", "updated_at"]
+        },
+        "products": {
+            "count": len(in_memory_db.products),
+            "fields": ["product_id", "name", "description", "price", "stock", "is_available", "created_at", "updated_at"]
+        },
+        "orders": {
+            "count": len(in_memory_db.orders),
+            "fields": ["order_id", "user_id", "product_id", "quantity", "total_price", "status", "order_date", "updated_at"]
+        },
+        "categories": {
+            "count": len(in_memory_db.categories),
+            "fields": ["category_id", "name", "description", "parent_category_id", "is_active", "created_at", "updated_at"]
+        },
+        "reviews": {
+            "count": len(in_memory_db.reviews),
+            "fields": ["review_id", "product_id", "user_id", "rating", "comment", "created_at", "updated_at"]
+        },
+        "inventories": {
+            "count": len(in_memory_db.inventories),
+            "fields": ["inventory_id", "product_id", "quantity", "min_stock", "max_stock", "location", "last_updated"]
+        },
+        "suppliers": {
+            "count": len(in_memory_db.suppliers),
+            "fields": ["supplier_id", "name", "contact_info", "address", "is_active", "created_at", "updated_at"]
+        }
+    }
+    
+    # 计算总记录数
+    total_records = sum(info["count"] for info in tables_info.values())
     
     return {
-        "database_name": app_db.db_name,
+        "database_name": "InMemoryDatabase",
         "tables": tables_info,
-        "data_file": app_db.data_file
+        "total_records": total_records,
+        "message": "这是基于内存的数据库，数据在程序重启后会丢失"
     }
 
 
