@@ -29,6 +29,20 @@ def test_create_user():
     assert "id" in data
 
 
+def test_create_user_invalid_email():
+    """测试创建用户时邮箱格式无效应返回422"""
+    user_data = {
+        "username": "invalid_email_user",
+        "email": "not-an-email",
+        "is_active": True
+    }
+    resp = client.post("/users", json=user_data)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert "detail" in body
+    assert any(err.get("loc", [None])[-1] == "email" for err in body.get("detail", []))
+
+
 def test_get_user():
     """测试获取单个用户"""
     # 先创建一个用户
