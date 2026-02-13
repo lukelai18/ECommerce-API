@@ -43,6 +43,30 @@ def test_create_user_invalid_email():
     assert any(err.get("loc", [None])[-1] == "email" for err in body.get("detail", []))
 
 
+def test_read_user_by_id():
+    """测试按ID读取用户信息"""
+    # 先创建用户
+    user_data = {
+        "username": "read_user_case",
+        "email": "read_user@example.com",
+        "is_active": True
+    }
+    create_resp = client.post("/users", json=user_data)
+    assert create_resp.status_code == 201
+    created = create_resp.json()
+    user_id = created["id"]
+
+    # 获取用户
+    get_resp = client.get(f"/users/{user_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["id"] == user_id
+    assert data["username"] == user_data["username"]
+    assert data["email"] == user_data["email"]
+    assert data["is_active"] is True
+    assert "created_at" in data and data["created_at"]
+
+
 def test_get_user():
     """测试获取单个用户"""
     # 先创建一个用户
