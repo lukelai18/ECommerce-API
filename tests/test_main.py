@@ -67,76 +67,75 @@ def test_read_user_by_id():
     assert "created_at" in data and data["created_at"]
 
 
-def test_get_user():
-    """测试获取单个用户"""
-    # 先创建一个用户
-    user_data = {
-        "name": "李四",
-        "email": "lisi@example.com",
-        "age": 30
-    }
-    create_resp = client.post("/users/", json=user_data)
-    user_id = create_resp.json()["id"]
-    
-    # 获取用户
-    resp = client.get(f"/users/{user_id}")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["id"] == user_id
-    assert data["name"] == user_data["name"]
-
-
-def test_get_users():
-    """测试获取所有用户"""
-    resp = client.get("/users/")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert isinstance(data, list)
+def test_read_user_not_found():
+    """测试读取不存在的用户应返回404"""
+    missing_id = 999999
+    resp = client.get(f"/users/{missing_id}")
+    assert resp.status_code == 404
+    body = resp.json()
+    assert body.get("detail") in ["用户未找到", "资源未找到"]
 
 
 def test_update_user():
-    """测试更新用户"""
-    # 先创建一个用户
+    """测试更新用户信息"""
+    # 先创建用户
     user_data = {
-        "name": "王五",
-        "email": "wangwu@example.com",
-        "age": 28
+        "username": "update_user_case",
+        "email": "update_user@example.com",
+        "is_active": True
     }
-    create_resp = client.post("/users/", json=user_data)
-    user_id = create_resp.json()["id"]
-    
+    create_resp = client.post("/users", json=user_data)
+    assert create_resp.status_code == 201
+    created = create_resp.json()
+    user_id = created["id"]
+
     # 更新用户
     update_data = {
-        "name": "王五更新",
-        "email": "wangwu.updated@example.com",
-        "age": 29
+        "username": "updated_name",
+        "email": "updated@example.com",
+        "is_active": False
     }
-    resp = client.put(f"/users/{user_id}", json=update_data)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["name"] == update_data["name"]
+    update_resp = client.put(f"/users/{user_id}", json=update_data)
+    assert update_resp.status_code == 200
+    updated = update_resp.json()
+    assert updated["id"] == user_id
+    assert updated["username"] == update_data["username"]
+    assert updated["email"] == update_data["email"]
+    assert updated["is_active"] is False
+
+    # 再次获取确认
+    get_resp = client.get(f"/users/{user_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["username"] == update_data["username"]
     assert data["email"] == update_data["email"]
-    assert data["age"] == update_data["age"]
+    assert data["is_active"] is False
 
 
 def test_delete_user():
     """测试删除用户"""
-    # 先创建一个用户
+    # 创建用户
     user_data = {
-        "name": "赵六",
-        "email": "zhaoliu@example.com",
-        "age": 32
+        "username": "delete_user_case",
+        "email": "delete_user@example.com",
+        "is_active": True
     }
-    create_resp = client.post("/users/", json=user_data)
+    create_resp = client.post("/users", json=user_data)
+    assert create_resp.status_code == 201
     user_id = create_resp.json()["id"]
-    
-    # 删除用户
-    resp = client.delete(f"/users/{user_id}")
-    assert resp.status_code == 200
-    
-    # 确认用户已被删除
+
+    # 删除
+    del_resp = client.delete(f"/users/{user_id}")
+    assert del_resp.status_code == 204
+
+    # 再获取应404
     get_resp = client.get(f"/users/{user_id}")
     assert get_resp.status_code == 404
+    detail = get_resp.json().get("detail")
+    assert detail in ["用户未找到", "资源未找到"]
+
+
+
 
 
 # Product模型测试
